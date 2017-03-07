@@ -16,3 +16,5 @@ Thanks for your feedback. I've contaced the TA's and the main points are :
 * we can conisder the click only and we can consider all the impressions
 * the one remaining question is whether we are a player in the auction or we are making a strategy because that could change a lot of things
 - I'll forward the email to you guys.
+#
+Great, thanks for the update ! I also had some words with the TA, sent you the e-mail. I uploaded 2 files one that extracts the features and the other makes the model, so far it uses one advertiser but it should be ok to deal all of them. However already with one it takes time to train. Let's see tomorrow!
