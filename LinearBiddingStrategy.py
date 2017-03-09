@@ -18,7 +18,13 @@ def get_std_slotprice(path,column="slotprice"):
     df = pd.read_csv(path, skipinitialspace=True, usecols=[column])
     return int(df.slotprice.values.std())
 
-def load_data(filepath):
+def get_LRS_params(path):
+    df=pd.read_csv(path)
+    avgCTR=(df.click.sum()/df.shape[0])*100
+    base_bid=df.payprice.mean()
+    return avgCTR,base_bid
+
+def load_data(filepath,training=True):
     data = list()
     labels = list()
     # std of slotprice for nomalization
@@ -30,7 +36,7 @@ def load_data(filepath):
         next(reader)
         # Iterate:
         for row in reader:
-            instance=process_event(row,STD_SLOTPRICE)
+            instance=process_event(row,STD_SLOTPRICE,training)
             data.append(instance)
             labels.append(int(row[0]))
     print "data and labels loaded"
@@ -60,12 +66,19 @@ def train(training_data, labels):
     return model, train_event_x
 
 
-def process_event(row,STD_SLOTPRICE):
+def process_event(row,STD_SLOTPRICE,training=True):
     # Initilize instance:
-    instance = {'weekday': row[1], 'hour': row[2], 'region': row[8], \
-                'city': row[9], 'adexchange': row[10], 'slotwidth': row[15], 'slotheight': row[16], \
-                'slotvisibility': row[17], 'slotformat': row[18], 'slotprice': float(row[19]) / STD_SLOTPRICE, \
-                'advertiser': row[24]}
+    if training==True:
+        instance = {'weekday': row[1], 'hour': row[2], 'region': row[8], \
+                    'city': row[9], 'adexchange': row[10], 'slotwidth': row[15], 'slotheight': row[16], \
+                    'slotvisibility': row[17], 'slotformat': row[18], 'slotprice': float(row[19]) / STD_SLOTPRICE, \
+                    'advertiser': row[24]}
+    else:
+        instance = {'weekday': row[1], 'hour': row[2], 'region': row[8], \
+                    'city': row[9], 'adexchange': row[10], 'slotwidth': row[15], 'slotheight': row[16], \
+                    'slotvisibility': row[17],'payprice':int(row[22]), 'slotformat': row[18], 'slotprice': float(row[19]) / STD_SLOTPRICE, \
+                    'advertiser': row[24]}
+
     # Add usertags:
     usertags = row[25].split(',')
     temp_dict = {}
@@ -86,7 +99,7 @@ def predict_event_labels(instance, model): # models:dict
     event_x = vectorizer.transform(event)
     #event_y = label_encoder.inverse_transform(lr.predict(event_x))
     event_y = lr.predict_proba(event_x)
-    return event_y
+    return event_y[0][1]
 
 
 def RTB_simulation_linear(model, validation_path, training_path, start_budget = 25000):  # param is the dictionary with the bidprice per advertiser
@@ -97,30 +110,32 @@ def RTB_simulation_linear(model, validation_path, training_path, start_budget = 
     STD_SLOTPRICE = get_std_slotprice(validation_path)
 
     # Linear Stragegy:
+    avgCTR,base_bid = get_LRS_params(training_path)
 
-    #min_bid,max_bid= get_random_bid(training_path)
-    min_bid, max_bid = 6,31
-    #print "span: %d - %d "%(min_bid,max_bid)
 
     with open(validation_path, 'r') as csvfile:
         reader = csv.reader(csvfile, delimiter=',', quotechar='"')
         next(reader)
         for row in reader:
 
+            # parsing event:
+            instance = process_event(row, STD_SLOTPRICE, training=False)
+
+            # Predicting CTR:
+            pCTR = predict_event_labels(instance, model)
+            #print "pctr: "+str(pCTR)
+
+            # Calculate the bid:
+            current_bid = base_bid * pCTR / avgCTR
+
+
             # Check if we still have budget:
             if budget > current_bid:
-                instance = process_event(row,STD_SLOTPRICE)
-
-                # Calculate the pCTR:
-                pCTR=predict_event_labels(instance, model)
-
-                # Calculate the bid:
-                current_bid = base_bid*pCTR/avgCTR
-                ## Complete avgCTR and base_bid
-                ##------------------------------
 
                 # Get the market price:
                 payprice = instance['payprice']
+
+                print "current bid : %d , payprice: %d, click? : %d" % (int(current_bid), int(payprice),row[0])
 
                 # Check if we win the bid:
                 if current_bid > payprice:
@@ -136,7 +151,7 @@ def RTB_simulation_linear(model, validation_path, training_path, start_budget = 
     if impressions > 0:
         return (clicks / impressions) * 100
     else:
-        return 0
+        return -1
 
 
 
@@ -154,6 +169,6 @@ if __name__=="__main__":
     # training model
     model,train_vec_x = train(training_events, labels)
 
-
+    val_CTR=RTB_simulation_linear(model, validation_path, training_path)
 
     print time.time()-st
