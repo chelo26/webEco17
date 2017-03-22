@@ -1,4 +1,5 @@
 from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import SGDClassifier
 import numpy as np
 from collections import defaultdict
 from sklearn.feature_extraction import DictVectorizer
@@ -21,7 +22,8 @@ def get_std_slotprice(path,column="slotprice"):
 def get_LRS_params(path):
     df=pd.read_csv(path)
     avgCTR=(df.click.sum()/df.shape[0])*100
-    base_bid=df.payprice.mean()
+    #base_bid=df.payprice.mean()
+    base_bid=30
     return avgCTR,base_bid
 
 def load_data(filepath,training=True):
@@ -59,7 +61,8 @@ def train(training_data, labels):
 
     # Create and train the model.
     p = 0.34
-    lr = LogisticRegression(C=p, class_weight={1: pos_weight, 0: neg_weight})
+    #lr = LogisticRegression(C=p, class_weight={1: pos_weight, 0: neg_weight})
+    lr = SGDClassifier(class_weight={1: pos_weight, 0: neg_weight}, penalty="elasticnet",loss="log")
     lr.fit(train_event_x, train_event_y)
     model = (lr, label_encoder, vectorizer)
     print('Training done')
@@ -102,9 +105,10 @@ def predict_event_labels(instance, model): # models:dict
     return event_y[0][1]
 
 
-def RTB_simulation_linear(model, validation_path, training_path, start_budget = 25000):  # param is the dictionary with the bidprice per advertiser
+def RTB_simulation_linear(model, validation_path, training_path, start_budget = 25000000):  # param is the dictionary with the bidprice per advertiser
     impressions = 0
     clicks = 0
+    requests=0
     budget=start_budget
     # Calculate the standard deviation for slotprice
     STD_SLOTPRICE = get_std_slotprice(validation_path)
@@ -126,7 +130,8 @@ def RTB_simulation_linear(model, validation_path, training_path, start_budget = 
             #print "pctr: "+str(pCTR)
 
             # Calculate the bid:
-            current_bid = base_bid * pCTR / avgCTR
+            #current_bid = avgCTR * pCTR / avgCTR
+            current_bid = base_bid* pCTR / avgCTR
 
 
             # Check if we still have budget:
@@ -135,8 +140,6 @@ def RTB_simulation_linear(model, validation_path, training_path, start_budget = 
                 # Get the market price:
                 payprice = instance['payprice']
 
-                print "current bid : %d , payprice: %d, click? : %d" % (int(current_bid), int(payprice),row[0])
-
                 # Check if we win the bid:
                 if current_bid > payprice:
                     impressions += 1
@@ -144,11 +147,15 @@ def RTB_simulation_linear(model, validation_path, training_path, start_budget = 
                     # Check if the person clicks:
                     if row[0] == "1":
                         clicks += 1
+                        #print "current bid : %d , payprice: %d, click? : %d" % (int(current_bid), int(payprice), int(row[0]))
+                requests+=1
 
-
+    print("Requests:{0}".format(requests))
     print("Impressions:{0}".format(impressions))
     print("Clicks:{0}".format(clicks))
+    print("Reamining Budget:{0}".format(budget))
     if impressions > 0:
+        print "Linear bid CTR: " + str((clicks / impressions) * 100)
         return (clicks / impressions) * 100
     else:
         return -1
@@ -167,8 +174,8 @@ if __name__=="__main__":
     training_events, labels = load_data(training_path)
 
     # training model
-    model,train_vec_x = train(training_events, labels)
+    model_linear_CTR,train_vec_x = train(training_events, labels)
 
-    val_CTR=RTB_simulation_linear(model, validation_path, training_path)
+    linear_bid_CTR=RTB_simulation_linear(model_linear_CTR, validation_path, training_path)
 
     print time.time()-st
